@@ -37,8 +37,6 @@ const CategoriasCalidad = () => {
 
   return (
     <div>
-      <h2>Categorías de Calidad</h2>
-      
       <div>
         {categorias.map((categoria) => {
           const { name, description, icon } = categoria.attributes;
