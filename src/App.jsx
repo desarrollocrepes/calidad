@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import './App.css';
-import { Popsicle, CookingPot, ArrowLeft, Download, Edit, Trash2, Plus, X, Loader2, FolderOpen, File } from 'lucide-react';
+import { Popsicle, CookingPot, ArrowLeft, Edit, Trash2, Plus, X, Loader2, FolderOpen, File } from 'lucide-react';
 
 const BASE_URL = import.meta.env.VITE_API_URL;
 const API_URL = `${BASE_URL}/api`;
@@ -240,7 +240,7 @@ export default function CalidadDashboard() {
                     </div>
                     <div className="doc-actions">
                       <a href={doc.fileUrl || '#'} target="_blank" rel="noreferrer" className="btn-outline">
-                        <Download size={16} /> Ver PDF
+                        Ver PDF
                       </a>
                       {isAdminMode && (
                         <>
