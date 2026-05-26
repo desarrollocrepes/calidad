@@ -1,12 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import './App.css';
-import { 
-  FileText, Store, UtensilsCrossed, Wrench, Building, 
-  Search, ArrowLeft, Download, Edit, Trash2, Plus,
-  UploadCloud, X, ShieldAlert, Loader2, FolderOpen
-} from 'lucide-react';
+import { Popsicle, CookingPot, ArrowLeft, Download, Edit, Trash2, Plus, X, Loader2, FolderOpen, File } from 'lucide-react';
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'https://backendintranet2.crepesywaffles.com';
+const BASE_URL = import.meta.env.VITE_API_URL;
 const API_URL = `${BASE_URL}/api`;
 
 export default function CalidadDashboard() {
@@ -55,13 +51,16 @@ export default function CalidadDashboard() {
       const result = await response.json();
       
       setSubcategorias(result.data.map(item => {
-        const fileObj = item.attributes.file?.data?.attributes;
+        const filesArray = item.attributes.file?.data;
+        const fileObj = filesArray && filesArray.length > 0 ? filesArray[0].attributes : null;
         const rawUrl = fileObj?.url;
+        
         return {
           id: item.id,
-          title: item.attributes.name || 'Sin título',
-          restaurant: item.attributes.restaurant,
-          category: item.attributes.categoria || 'equipos', 
+          title: fileObj?.name || 'Documento sin archivo', // El nombre lo toma del PDF
+          restaurant: item.attributes.restaurant || false,
+          heladeria: item.attributes.heladeria || false,
+          category: item.attributes.name || 'Sin categoría',
           updatedAt: new Date(item.attributes.updatedAt).toLocaleDateString(),
           version: item.attributes.version || 'v1.0',
           fileUrl: rawUrl ? (rawUrl.startsWith('http') ? rawUrl : `${BASE_URL}${rawUrl}`) : null
@@ -85,10 +84,17 @@ export default function CalidadDashboard() {
     setIsSaving(true);
     try {
       const form = e.target.elements;
+      
+      if (!selectedDoc && !selectedFile) {
+        alert("Debes adjuntar un archivo PDF para el nuevo documento.");
+        setIsSaving(false);
+        return;
+      }
+
       const dataPayload = {
-        name: form.title.value,
-        restaurant: form.location.value === 'restaurante',
-        categoria: form.category.value,
+        name: form.category.value,
+        restaurant: form.restaurant.checked,
+        heladeria: form.heladeria.checked,
         calidad_categoria: selectedCategoria.id 
       };
 
@@ -119,11 +125,18 @@ export default function CalidadDashboard() {
     }
   };
 
-  const filteredDocs = useMemo(() => subcategorias.filter(doc => 
-    (locationFilter === 'restaurante' ? doc.restaurant : !doc.restaurant) &&
-    (categoryFilter === 'todas' || doc.category === categoryFilter) &&
-    (doc.title?.toLowerCase().includes(searchQuery.toLowerCase()))
-  ), [subcategorias, locationFilter, categoryFilter, searchQuery]);
+  // Filtrar documentos
+  const filteredDocs = useMemo(() => subcategorias.filter(doc => {
+    const matchLocation = locationFilter === 'restaurante' ? doc.restaurant : doc.heladeria;
+    const matchCategory = categoryFilter === 'todas' || doc.category === categoryFilter;
+    const matchSearch = doc.title?.toLowerCase().includes(searchQuery.toLowerCase()) || doc.category?.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchLocation && matchCategory && matchSearch;
+  }), [subcategorias, locationFilter, categoryFilter, searchQuery]);
+
+  const dynamicCategories = useMemo(() => {
+    const cats = new Set(subcategorias.map(doc => doc.category));
+    return Array.from(cats);
+  }, [subcategorias]);
 
   const handleSelectCategoria = (cat) => {
     setSelectedCategoria(cat);
@@ -153,8 +166,8 @@ export default function CalidadDashboard() {
                     <div className="card-icon-wrapper">
                       {icon && typeof icon === 'string' ? <img src={icon} alt={name} className="card-icon-img" /> : <FolderOpen size={32} />}
                     </div>
-                    <h3 className="card-title">{name}</h3>
-                    <p className="card-desc">{description}</p>
+                    <h3 className="card-title">{name || "Sin nombre"}</h3>
+                    <p className="card-desc">{description || "Sin descripción"}</p>
                   </button>
                 ))}
               </div>
@@ -168,7 +181,7 @@ export default function CalidadDashboard() {
             <div className="view-header">
               <div className="header-title-group">
                 <button onClick={() => setCurrentView('menu')} className="btn-icon-only"><ArrowLeft size={20} /></button>
-                <h2 className="page-title">{selectedCategoria?.attributes?.name || 'Documentos'}</h2>
+                <h2 className="page-title">{selectedCategoria?.attributes?.name || 'Sin nombre'}</h2>
               </div>
               <div className="admin-toggle-wrapper">
                 <span className="admin-label">Edición</span>
@@ -180,35 +193,32 @@ export default function CalidadDashboard() {
 
             <div className="location-tabs">
               <button onClick={() => { setLocationFilter('heladeria'); setCategoryFilter('todas'); }} className={`loc-tab-btn ${locationFilter === 'heladeria' ? 'active' : ''}`}>
-                <Store size={18} /> Heladerías
+                <Popsicle size={18} /> Heladerías
               </button>
               <button onClick={() => { setLocationFilter('restaurante'); setCategoryFilter('todas'); }} className={`loc-tab-btn ${locationFilter === 'restaurante' ? 'active' : ''}`}>
-                <UtensilsCrossed size={18} /> Restaurantes
+                <CookingPot size={18} /> Restaurantes
               </button>
             </div>
 
             <div className="filters-bar">
               <div className="pills-group">
-                {[
-                  { id: 'todas', label: 'Todos' },
-                  { id: 'equipos', label: 'Equipos', icon: <Wrench size={14} /> },
-                  { id: 'instalaciones', label: 'Instalaciones', icon: <Building size={14} /> },
-                  { id: 'utensilios', label: 'Utensilios', icon: <UtensilsCrossed size={14} /> }
-                ].map(cat => (
-                  <button key={cat.id} onClick={() => setCategoryFilter(cat.id)} className={`pill-btn ${categoryFilter === cat.id ? 'active' : ''}`}>
-                    {cat.icon} {cat.label}
+                <button onClick={() => setCategoryFilter('todas')} className={`pill-btn ${categoryFilter === 'todas' ? 'active' : ''}`}>
+                  Todos
+                </button>
+                {dynamicCategories.map(cat => (
+                  <button key={cat} onClick={() => setCategoryFilter(cat)} className={`pill-btn ${categoryFilter === cat ? 'active' : ''}`}>
+                    {cat}
                   </button>
                 ))}
               </div>
 
               <div className="search-actions-group">
                 <div className="search-wrapper">
-                  <Search className="search-icon" size={16} />
                   <input type="text" placeholder="Buscar..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="search-input" />
                 </div>
                 {isAdminMode && (
                   <button onClick={() => { setSelectedDoc(null); setShowEditModal(true); }} className="btn-primary">
-                    <Plus size={16} /> Nuevo
+                    <Plus size={16} />Nuevo
                   </button>
                 )}
               </div>
@@ -219,11 +229,12 @@ export default function CalidadDashboard() {
                 {filteredDocs.length > 0 ? filteredDocs.map(doc => (
                   <div key={doc.id} className="doc-item">
                     <div className="doc-info">
-                      <FileText size={24} className="doc-icon" />
+                      <File size={24} className="doc-icon" />
                       <div>
-                        <h4 className="doc-title-row">{doc.title} <span className="doc-version">{doc.version}</span></h4>
+                        <h4 className="doc-title-row">{doc.title}</h4>
                         <div className="doc-meta">
-                          <span>{doc.category}</span> • <span>{doc.updatedAt}</span>
+                          <span className="pill">{doc.category}</span>
+                          <span> Creado: {doc.updatedAt}</span>
                         </div>
                       </div>
                     </div>
@@ -239,7 +250,7 @@ export default function CalidadDashboard() {
                       )}
                     </div>
                   </div>
-                )) : <p className="empty-state">No se encontraron documentos.</p>}
+                )) : <p className="empty-state">No se encontraron documentos en esta vista.</p>}
               </div>
             )}
           </div>
@@ -251,39 +262,43 @@ export default function CalidadDashboard() {
         <div className="modal-overlay">
           <form onSubmit={handleSaveDocument} className="modal-content">
             <div className="modal-header">
-              <h3 className="modal-title"><UploadCloud size={20} /> {selectedDoc ? 'Actualizar' : 'Nuevo Documento'}</h3>
+              <h3 className="modal-title"> {selectedDoc ? 'Actualizar documento' : 'Nuevo documento'}</h3>
               <button type="button" onClick={closeModal} className="btn-icon-only"><X size={20} /></button>
             </div>
             
             <div className="modal-body">
-              <div className="alert-box">
-                <ShieldAlert size={18} /> Categoría: {selectedCategoria?.attributes?.name}
-              </div>
               <div className="form-group">
-                <label>Nombre del Documento</label>
-                <input name="title" required type="text" defaultValue={selectedDoc?.title || ''} className="form-control" />
+                <label>Categoría</label>
+                <input 
+                  name="category" 
+                  type="text" 
+                  required 
+                  defaultValue={selectedDoc?.category || ''} 
+                  className="form-control" 
+                  placeholder="Ej. Utensilios, Equipos, RHM..." 
+                />
               </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Ubicación</label>
-                  <select name="location" defaultValue={selectedDoc?.restaurant ? 'restaurante' : 'heladeria'} className="form-control">
-                    <option value="heladeria">Heladería</option>
-                    <option value="restaurante">Restaurante</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Categoría</label>
-                  <select name="category" defaultValue={selectedDoc?.category || 'equipos'} className="form-control">
-                    <option value="equipos">Equipos</option>
-                    <option value="instalaciones">Instalaciones</option>
-                    <option value="utensilios">Utensilios</option>
-                  </select>
+
+              <div className="form-group">
+                <label>Ubicación</label>
+                <div className="checkbox-group">
+                  <label className="check-label">
+                    <input type="checkbox" name="heladeria" defaultChecked={selectedDoc ? selectedDoc.heladeria : true} />
+                    Heladería
+                  </label>
+                  <label className="check-label">
+                    <input type="checkbox" name="restaurant" defaultChecked={selectedDoc ? selectedDoc.restaurant : false} />
+                    Restaurante
+                  </label>
                 </div>
               </div>
+
               <div className="file-dropzone" onClick={() => fileInputRef.current.click()}>
                 <input type="file" accept="application/pdf" style={{display: 'none'}} ref={fileInputRef} onChange={(e) => setSelectedFile(e.target.files[0])} />
-                <FileText size={24} />
-                <p>{selectedFile ? selectedFile.name : "Seleccionar PDF"}</p>
+                <File size={24} />
+                <p>
+                  {selectedFile ? selectedFile.name : (selectedDoc ? `Actual: ${selectedDoc.title}` : "Haz clic para seleccionar el PDF")}
+                </p>
               </div>
             </div>
             
