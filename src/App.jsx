@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import './App.css';
-import { Popsicle, CookingPot, ArrowLeft, Edit, Trash2, Plus, X, Loader2, FolderOpen, File } from 'lucide-react';
+import { Popsicle, CookingPot, ArrowLeft, Trash2, Plus, X, Loader2, FolderOpen, File } from 'lucide-react';
 
-const BASE_URL = import.meta.env.VITE_API_URL;
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:1337';
 const API_URL = `${BASE_URL}/api`;
 
-// normalizar texto categorías
 const formatCategory = (str) => {
   if (!str) return 'Sin categoría';
   const trimmed = str.trim();
@@ -17,18 +16,15 @@ export default function CalidadDashboard() {
   const [categorias, setCategorias] = useState([]);
   const [selectedCategoria, setSelectedCategoria] = useState(null);
   const [subcategorias, setSubcategorias] = useState([]);
-  
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-
   const [locationFilter, setLocationFilter] = useState('heladeria'); 
   const [categoryFilter, setCategoryFilter] = useState('todas'); 
   const [searchQuery, setSearchQuery] = useState('');
-  
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [selectedDoc, setSelectedDoc] = useState(null);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-
+  const [uploadFormState, setUploadFormState] = useState({ subcategoryId: '', restaurant: false, heladeria: true });
   const fileInputRef = useRef(null);
   const [selectedFile, setSelectedFile] = useState(null);
 
@@ -41,7 +37,7 @@ export default function CalidadDashboard() {
         const result = await response.json();
         setCategorias(result.data);
       } catch {
-        setError('Error al cargar las categorías.');
+        setError('Error al cargar las categorías principales.');
       } finally {
         setIsLoading(false);
       }
@@ -56,23 +52,23 @@ export default function CalidadDashboard() {
       if (!response.ok) throw new Error();
       const result = await response.json();
       
-      setSubcategorias(result.data.map(item => {
-        const filesArray = item.attributes.file?.data;
-        const fileObj = filesArray && filesArray.length > 0 ? filesArray[0].attributes : null;
-        const rawUrl = fileObj?.url;
-        
-        return {
-          id: item.id,
-          title: fileObj?.name || 'Documento sin archivo',
-          restaurant: item.attributes.restaurant || false,
-          heladeria: item.attributes.heladeria || false,
-          // formateo de categoría de api
-          category: formatCategory(item.attributes.name),
-          updatedAt: new Date(item.attributes.updatedAt).toLocaleDateString(),
-          version: item.attributes.version || 'v1.0',
-          fileUrl: rawUrl ? (rawUrl.startsWith('http') ? rawUrl : `${BASE_URL}${rawUrl}`) : null
-        };
+      const fetchedGroups = result.data.map(item => ({
+        id: item.id,
+        name: formatCategory(item.attributes.name),
+        restaurant: item.attributes.restaurant || false,
+        heladeria: item.attributes.heladeria || false,
+        files: item.attributes.file?.data?.map(f => {
+          const rawUrl = f.attributes.url;
+          return {
+            id: f.id,
+            name: f.attributes.name,
+            url: rawUrl ? (rawUrl.startsWith('http') ? rawUrl : `${BASE_URL}${rawUrl}`) : null,
+            updatedAt: new Date(f.attributes.updatedAt).toLocaleDateString()
+          };
+        }) || []
       }));
+      
+      setSubcategorias(fetchedGroups);
     } catch {
       setError('Error al cargar los documentos.');
     } finally {
@@ -86,64 +82,119 @@ export default function CalidadDashboard() {
     }
   }, [currentView, selectedCategoria]);
 
-  const handleSaveDocument = async (e) => {
+  const allDocuments = useMemo(() => {
+    return subcategorias.flatMap(sub => 
+      sub.files.map(file => ({
+        ...file,
+        subcategoryId: sub.id,
+        categoryName: sub.name,
+        restaurant: sub.restaurant,
+        heladeria: sub.heladeria
+      }))
+    );
+  }, [subcategorias]);
+
+  const filteredDocs = useMemo(() => {
+    return allDocuments.filter(doc => {
+      const matchLocation = locationFilter === 'restaurante' ? doc.restaurant : doc.heladeria;
+      const matchCategory = categoryFilter === 'todas' || doc.categoryName === categoryFilter;
+      const matchSearch = doc.name.toLowerCase().includes(searchQuery.toLowerCase()) || doc.categoryName.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchLocation && matchCategory && matchSearch;
+    });
+  }, [allDocuments, locationFilter, categoryFilter, searchQuery]);
+
+  const dynamicCategories = useMemo(() => {
+    return subcategorias.filter(sub => locationFilter === 'restaurante' ? sub.restaurant : sub.heladeria);
+  }, [subcategorias, locationFilter]);
+
+  const handleCreateCategory = async (e) => {
     e.preventDefault();
     setIsSaving(true);
     try {
       const form = e.target.elements;
-      
-      if (!selectedDoc && !selectedFile) {
-        alert("Debes adjuntar un archivo PDF para el nuevo documento.");
-        setIsSaving(false);
-        return;
-      }
-
-      const dataPayload = {
-        // formatear categoría antes de enviar a api
-        name: formatCategory(form.category.value),
+      const payload = {
+        name: formatCategory(form.categoryName.value),
         restaurant: form.restaurant.checked,
         heladeria: form.heladeria.checked,
-        calidad_categoria: selectedCategoria.id 
+        calidad_categoria: selectedCategoria.id
       };
 
-      const submitData = new FormData();
-      submitData.append('data', JSON.stringify(dataPayload));
-      if (selectedFile) submitData.append('files.file', selectedFile);
+      const response = await fetch(`${API_URL}/calidad-subcategorias`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: payload })
+      });
 
-      const url = selectedDoc ? `${API_URL}/calidad-subcategorias/${selectedDoc.id}` : `${API_URL}/calidad-subcategorias`;
-      const response = await fetch(url, { method: selectedDoc ? 'PUT' : 'POST', body: submitData });
-
-      if (!response.ok) throw new Error();
+      if (!response.ok) throw new Error('Error al crear la categoría.');
+      
       await fetchSubcategorias(selectedCategoria.id);
-      closeModal();
-    } catch {
-      alert('Error al guardar el documento.');
+      setShowCategoryModal(false);
+    } catch (err) {
+      alert(err.message);
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleDeleteDocument = async (id) => {
-    if (!window.confirm('¿Eliminar este documento permanentemente?')) return;
+  const handleUploadDocument = async (e) => {
+    e.preventDefault();
+    if (!selectedFile) return alert("Debes adjuntar un archivo PDF.");
+    setIsSaving(true);
+    
     try {
-      await fetch(`${API_URL}/calidad-subcategorias/${id}`, { method: 'DELETE' });
-      setSubcategorias(prev => prev.filter(doc => doc.id !== id));
-    } catch {
-      alert('Error al eliminar.');
+      const form = e.target.elements;
+      const subId = form.subcategoryId.value;
+
+      await fetch(`${API_URL}/calidad-subcategorias/${subId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          data: { restaurant: form.restaurant.checked, heladeria: form.heladeria.checked } 
+        })
+      });
+
+      const submitData = new FormData();
+      submitData.append('files', selectedFile);
+      submitData.append('refId', subId);
+      submitData.append('ref', 'api::calidad-subcategoria.calidad-subcategoria');
+      submitData.append('field', 'file');
+
+      const response = await fetch(`${API_URL}/upload`, { 
+        method: 'POST', 
+        body: submitData 
+      });
+
+      if (!response.ok) throw new Error('Error al adjuntar el archivo.');
+
+      await fetchSubcategorias(selectedCategoria.id);
+      closeUploadModal();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  const filteredDocs = useMemo(() => subcategorias.filter(doc => {
-    const matchLocation = locationFilter === 'restaurante' ? doc.restaurant : doc.heladeria;
-    const matchCategory = categoryFilter === 'todas' || doc.category === categoryFilter;
-    const matchSearch = doc.title?.toLowerCase().includes(searchQuery.toLowerCase()) || doc.category?.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchLocation && matchCategory && matchSearch;
-  }), [subcategorias, locationFilter, categoryFilter, searchQuery]);
+  const handleDeleteFile = async (fileId) => {
+    if (!window.confirm('¿Eliminar este documento permanentemente?')) return;
+    try {
+      await fetch(`${API_URL}/upload/files/${fileId}`, { method: 'DELETE' });
+      await fetchSubcategorias(selectedCategoria.id);
+    } catch {
+      alert('Error al eliminar el documento.');
+    }
+  };
 
-  const dynamicCategories = useMemo(() => {
-    const cats = new Set(subcategorias.map(doc => doc.category));
-    return Array.from(cats);
-  }, [subcategorias]);
+  const handleDeleteCategory = async (subId) => {
+    if (!window.confirm('¿Eliminar esta categoría y todos sus documentos internos?')) return;
+    try {
+      await fetch(`${API_URL}/calidad-subcategorias/${subId}`, { method: 'DELETE' });
+      setCategoryFilter('todas');
+      await fetchSubcategorias(selectedCategoria.id);
+    } catch {
+      alert('Error al eliminar la categoría.');
+    }
+  };
 
   const handleSelectCategoria = (cat) => {
     setSelectedCategoria(cat);
@@ -153,17 +204,34 @@ export default function CalidadDashboard() {
     setCategoryFilter('todas');
   };
 
-  const closeModal = () => {
-    setShowEditModal(false);
-    setSelectedDoc(null);
+  const openUploadModal = () => {
+    if (subcategorias.length === 0) {
+      alert("Primero debes crear al menos una categoría en los filtros.");
+      return;
+    }
+    const firstSub = subcategorias[0];
+    setUploadFormState({ subcategoryId: firstSub.id, restaurant: firstSub.restaurant, heladeria: firstSub.heladeria });
+    setShowUploadModal(true);
+  };
+
+  const closeUploadModal = () => {
+    setShowUploadModal(false);
     setSelectedFile(null);
+  };
+
+  const handleSubcategorySelectChange = (e) => {
+    const id = e.target.value;
+    const sub = subcategorias.find(s => s.id.toString() === id);
+    if (sub) {
+      setUploadFormState({ subcategoryId: id, restaurant: sub.restaurant, heladeria: sub.heladeria });
+    }
   };
 
   return (
     <div className="calidad-dashboard">
       <div className="max-w-container">
         
-        {/* MENÚ */}
+        {/* menu */}
         {currentView === 'menu' && (
           <div>
             {isLoading ? <Loader2 className="spinner" size={40} /> : error ? <p className="error-state">{error}</p> : (
@@ -182,7 +250,7 @@ export default function CalidadDashboard() {
           </div>
         )}
 
-        {/* DETALLE */}
+        {/* detalle */}
         {currentView === 'detalle' && (
           <div>
             <div className="view-header">
@@ -206,83 +274,146 @@ export default function CalidadDashboard() {
                 <button onClick={() => setCategoryFilter('todas')} className={`pill-btn ${categoryFilter === 'todas' ? 'active' : ''}`}>
                   Todos
                 </button>
-                {dynamicCategories.map(cat => (
-                  <button key={cat} onClick={() => setCategoryFilter(cat)} className={`pill-btn ${categoryFilter === cat ? 'active' : ''}`}>
-                    {cat}
+                {dynamicCategories.map(sub => (
+                  <button key={sub.id} onClick={() => setCategoryFilter(sub.name)} className={`pill-btn ${categoryFilter === sub.name ? 'active' : ''}`}>
+                    {sub.name}
                   </button>
                 ))}
+                
+                <button onClick={() => setShowCategoryModal(true)} className="pill-btn add-pill">
+                  <Plus size={16} />Nueva Categoría
+                </button>
               </div>
 
               <div className="search-actions-group">
                 <div className="search-wrapper">
                   <input type="text" placeholder="Buscar..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="search-input" />
                 </div>
-                <button onClick={() => { setSelectedDoc(null); setShowEditModal(true); }} className="btn-primary">
-                  <Plus size={16} />Nuevo
+                <button onClick={openUploadModal} className="btn-primary">
+                  <Plus size={16} /> Subir Documento
                 </button>
               </div>
             </div>
 
+            {categoryFilter !== 'todas' && (
+              <div className="active-category-actions">
+                <span className="info-text">Mostrando documentos de: <strong>{categoryFilter}</strong></span>
+                <button 
+                  className="btn-outline danger-outline" 
+                  onClick={() => handleDeleteCategory(dynamicCategories.find(c => c.name === categoryFilter)?.id)}
+                >
+                  <Trash2 size={16} /> Eliminar Categoría
+                </button>
+              </div>
+            )}
+
             {isLoading ? <Loader2 className="spinner" size={40} /> : error ? <p className="error-state">{error}</p> : (
               <div className="doc-list-container">
-                {filteredDocs.length > 0 ? filteredDocs.map(doc => (
-                  <div key={doc.id} className="doc-item">
-                    <div className="doc-info">
-                      <File size={24} className="doc-icon" />
-                      <div>
-                        <h4 className="doc-title-row">{doc.title}</h4>
-                        <div className="doc-meta">
-                          <span className="pill">{doc.category}</span>
-                          <span> Creado: {doc.updatedAt}</span>
+                {filteredDocs.length === 0 ? (
+                   <p className="empty-state">No se encontraron documentos en esta vista.</p>
+                ) : (
+                  filteredDocs.map(doc => (
+                    <div key={doc.id} className="doc-item">
+                      <div className="doc-info">
+                        <File size={24} className="doc-icon" />
+                        <div>
+                          <h4 className="doc-title-row">{doc.name}</h4>
+                          <div className="doc-meta">
+                            <span className="pill">{doc.categoryName}</span>
+                            <span>Subido: {doc.updatedAt}</span>
+                          </div>
                         </div>
                       </div>
+                      <div className="doc-actions">
+                        <a href={doc.url || '#'} target="_blank" rel="noreferrer" className="btn-outline">Ver PDF</a>
+                        <button onClick={() => handleDeleteFile(doc.id)} className="btn-icon-only"><Trash2 size={18} /></button>
+                      </div>
                     </div>
-                    <div className="doc-actions">
-                      <a href={doc.fileUrl || '#'} target="_blank" rel="noreferrer" className="btn-outline">
-                        Ver PDF
-                      </a>
-                      <button onClick={() => { setSelectedDoc(doc); setShowEditModal(true); }} className="btn-icon-only"><Edit size={18} /></button>
-                      <button onClick={() => handleDeleteDocument(doc.id)} className="btn-icon-only"><Trash2 size={18} /></button>
-                    </div>
-                  </div>
-                )) : <p className="empty-state">No se encontraron documentos en esta vista.</p>}
+                  ))
+                )}
               </div>
             )}
           </div>
         )}
       </div>
 
-      {/* MODAL */}
-      {showEditModal && (
+      {/* modal categoria */}
+      {showCategoryModal && (
         <div className="modal-overlay">
-          <form onSubmit={handleSaveDocument} className="modal-content">
+          <form onSubmit={handleCreateCategory} className="modal-content">
             <div className="modal-header">
-              <h3 className="modal-title"> {selectedDoc ? 'Actualizar documento' : 'Nuevo documento'}</h3>
-              <button type="button" onClick={closeModal} className="btn-icon-only"><X size={20} /></button>
+              <h3 className="modal-title">Crear Nueva Categoría</h3>
+              <button type="button" onClick={() => setShowCategoryModal(false)} className="btn-icon-only"><X size={20} /></button>
             </div>
             
             <div className="modal-body">
               <div className="form-group">
-                <label>Categoría</label>
-                <input 
-                  name="category" 
-                  type="text" 
-                  required 
-                  defaultValue={selectedDoc?.category || ''} 
-                  className="form-control" 
-                  placeholder="Ej. Utensilios, Equipos, RHM..." 
-                />
+                <label>Nombre de la Categoría</label>
+                <input name="categoryName" type="text" required className="form-control" placeholder="Ej. Manuales de Cocina..."/>
               </div>
 
               <div className="form-group">
                 <label>Ubicación</label>
                 <div className="checkbox-group">
                   <label className="check-label">
-                    <input type="checkbox" name="heladeria" defaultChecked={selectedDoc ? selectedDoc.heladeria : true} />
+                    <input type="checkbox" name="heladeria" defaultChecked={locationFilter === 'heladeria'} />
                     Heladería
                   </label>
                   <label className="check-label">
-                    <input type="checkbox" name="restaurant" defaultChecked={selectedDoc ? selectedDoc.restaurant : false} />
+                    <input type="checkbox" name="restaurant" defaultChecked={locationFilter === 'restaurante'} />
+                    Restaurante
+                  </label>
+                </div>
+              </div>
+            </div>
+            
+            <div className="modal-footer">
+              <button type="button" onClick={() => setShowCategoryModal(false)} className="btn-outline" disabled={isSaving}>Cancelar</button>
+              <button type="submit" disabled={isSaving} className="btn-primary">
+                {isSaving ? <Loader2 size={16} className="spinner" /> : 'Crear Categoría'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* modal subir */}
+      {showUploadModal && (
+        <div className="modal-overlay">
+          <form onSubmit={handleUploadDocument} className="modal-content">
+            <div className="modal-header">
+              <h3 className="modal-title">Subir Documento PDF</h3>
+              <button type="button" onClick={closeUploadModal} className="btn-icon-only"><X size={20} /></button>
+            </div>
+            
+            <div className="modal-body">
+              <div className="form-group">
+                <label>Seleccionar Categoría (ID Destino)</label>
+                <select 
+                  name="subcategoryId" 
+                  className="form-control" 
+                  value={uploadFormState.subcategoryId}
+                  onChange={handleSubcategorySelectChange}
+                >
+                  {subcategorias.map(g => (
+                    <option key={g.id} value={g.id}>{g.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Ubicación del Documento y Categoría</label>
+                <div className="checkbox-group">
+                  <label className="check-label">
+                    <input type="checkbox" name="heladeria" 
+                           checked={uploadFormState.heladeria} 
+                           onChange={(e) => setUploadFormState({...uploadFormState, heladeria: e.target.checked})} />
+                    Heladería
+                  </label>
+                  <label className="check-label">
+                    <input type="checkbox" name="restaurant" 
+                           checked={uploadFormState.restaurant} 
+                           onChange={(e) => setUploadFormState({...uploadFormState, restaurant: e.target.checked})} />
                     Restaurante
                   </label>
                 </div>
@@ -291,16 +422,14 @@ export default function CalidadDashboard() {
               <div className="file-dropzone" onClick={() => fileInputRef.current.click()}>
                 <input type="file" accept="application/pdf" style={{display: 'none'}} ref={fileInputRef} onChange={(e) => setSelectedFile(e.target.files[0])} />
                 <File size={24} />
-                <p>
-                  {selectedFile ? selectedFile.name : (selectedDoc ? `Actual: ${selectedDoc.title}` : "Haz clic para seleccionar el PDF")}
-                </p>
+                <p>{selectedFile ? selectedFile.name : "Haz clic para seleccionar el PDF"}</p>
               </div>
             </div>
             
             <div className="modal-footer">
-              <button type="button" onClick={closeModal} className="btn-outline" disabled={isSaving}>Cancelar</button>
+              <button type="button" onClick={closeUploadModal} className="btn-outline" disabled={isSaving}>Cancelar</button>
               <button type="submit" disabled={isSaving} className="btn-primary">
-                {isSaving ? <Loader2 size={16} className="spinner" /> : 'Guardar'}
+                {isSaving ? <Loader2 size={16} className="spinner" /> : 'Subir Documento'}
               </button>
             </div>
           </form>
