@@ -5,6 +5,13 @@ import { Popsicle, CookingPot, ArrowLeft, Edit, Trash2, Plus, X, Loader2, Folder
 const BASE_URL = import.meta.env.VITE_API_URL;
 const API_URL = `${BASE_URL}/api`;
 
+// normalizar texto categorías
+const formatCategory = (str) => {
+  if (!str) return 'Sin categoría';
+  const trimmed = str.trim();
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+};
+
 export default function CalidadDashboard() {
   const [currentView, setCurrentView] = useState('menu'); 
   const [categorias, setCategorias] = useState([]);
@@ -18,7 +25,6 @@ export default function CalidadDashboard() {
   const [categoryFilter, setCategoryFilter] = useState('todas'); 
   const [searchQuery, setSearchQuery] = useState('');
   
-  const [isAdminMode, setIsAdminMode] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedDoc, setSelectedDoc] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -57,10 +63,11 @@ export default function CalidadDashboard() {
         
         return {
           id: item.id,
-          title: fileObj?.name || 'Documento sin archivo', // El nombre lo toma del PDF
+          title: fileObj?.name || 'Documento sin archivo',
           restaurant: item.attributes.restaurant || false,
           heladeria: item.attributes.heladeria || false,
-          category: item.attributes.name || 'Sin categoría',
+          // formateo de categoría de api
+          category: formatCategory(item.attributes.name),
           updatedAt: new Date(item.attributes.updatedAt).toLocaleDateString(),
           version: item.attributes.version || 'v1.0',
           fileUrl: rawUrl ? (rawUrl.startsWith('http') ? rawUrl : `${BASE_URL}${rawUrl}`) : null
@@ -92,7 +99,8 @@ export default function CalidadDashboard() {
       }
 
       const dataPayload = {
-        name: form.category.value,
+        // formatear categoría antes de enviar a api
+        name: formatCategory(form.category.value),
         restaurant: form.restaurant.checked,
         heladeria: form.heladeria.checked,
         calidad_categoria: selectedCategoria.id 
@@ -125,7 +133,6 @@ export default function CalidadDashboard() {
     }
   };
 
-  // Filtrar documentos
   const filteredDocs = useMemo(() => subcategorias.filter(doc => {
     const matchLocation = locationFilter === 'restaurante' ? doc.restaurant : doc.heladeria;
     const matchCategory = categoryFilter === 'todas' || doc.category === categoryFilter;
@@ -161,10 +168,10 @@ export default function CalidadDashboard() {
           <div>
             {isLoading ? <Loader2 className="spinner" size={40} /> : error ? <p className="error-state">{error}</p> : (
               <div className="menu-grid">
-                {categorias.map(({ id, attributes: { name, description, icon } }) => (
+                {categorias.map(({ id, attributes: { name, description } }) => (
                   <button key={id} onClick={() => handleSelectCategoria({id, attributes: {name}})} className="menu-card">
                     <div className="card-icon-wrapper">
-                      {icon && typeof icon === 'string' ? <img src={icon} alt={name} className="card-icon-img" /> : <FolderOpen size={32} />}
+                      <FolderOpen size={32} />
                     </div>
                     <h3 className="card-title">{name || "Sin nombre"}</h3>
                     <p className="card-desc">{description || "Sin descripción"}</p>
@@ -182,12 +189,6 @@ export default function CalidadDashboard() {
               <div className="header-title-group">
                 <button onClick={() => setCurrentView('menu')} className="btn-icon-only"><ArrowLeft size={20} /></button>
                 <h2 className="page-title">{selectedCategoria?.attributes?.name || 'Sin nombre'}</h2>
-              </div>
-              <div className="admin-toggle-wrapper">
-                <span className="admin-label">Edición</span>
-                <button onClick={() => setIsAdminMode(!isAdminMode)} className={`toggle-switch ${isAdminMode ? 'active' : ''}`}>
-                  <span className="toggle-dot" />
-                </button>
               </div>
             </div>
 
@@ -216,11 +217,9 @@ export default function CalidadDashboard() {
                 <div className="search-wrapper">
                   <input type="text" placeholder="Buscar..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="search-input" />
                 </div>
-                {isAdminMode && (
-                  <button onClick={() => { setSelectedDoc(null); setShowEditModal(true); }} className="btn-primary">
-                    <Plus size={16} />Nuevo
-                  </button>
-                )}
+                <button onClick={() => { setSelectedDoc(null); setShowEditModal(true); }} className="btn-primary">
+                  <Plus size={16} />Nuevo
+                </button>
               </div>
             </div>
 
@@ -242,12 +241,8 @@ export default function CalidadDashboard() {
                       <a href={doc.fileUrl || '#'} target="_blank" rel="noreferrer" className="btn-outline">
                         Ver PDF
                       </a>
-                      {isAdminMode && (
-                        <>
-                          <button onClick={() => { setSelectedDoc(doc); setShowEditModal(true); }} className="btn-icon-only"><Edit size={18} /></button>
-                          <button onClick={() => handleDeleteDocument(doc.id)} className="btn-icon-only"><Trash2 size={18} /></button>
-                        </>
-                      )}
+                      <button onClick={() => { setSelectedDoc(doc); setShowEditModal(true); }} className="btn-icon-only"><Edit size={18} /></button>
+                      <button onClick={() => handleDeleteDocument(doc.id)} className="btn-icon-only"><Trash2 size={18} /></button>
                     </div>
                   </div>
                 )) : <p className="empty-state">No se encontraron documentos en esta vista.</p>}

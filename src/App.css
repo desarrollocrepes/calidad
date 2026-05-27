@@ -75,43 +75,6 @@
   gap: 0.75rem;
 }
 
-.admin-toggle-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  background-color: var(--bg-color);
-  border: 1px solid var(--main-border);
-  padding: 0.5rem;
-  border-radius: 0.5rem;
-  color: var(--main-color);
-}
-
-.toggle-switch {
-  width: 2.75rem;
-  height: 1.5rem;
-  border-radius: 999px;
-  border: 1px solid var(--main-color);
-  background: transparent;
-  position: relative;
-  cursor: pointer;
-}
-
-.toggle-dot {
-  width: 1rem;
-  height: 1rem;
-  background: var(--main-color);
-  border-radius: 50%;
-  position: absolute;
-  top: 50%;
-  left: 0.25rem;
-  transform: translateY(-50%);
-  transition: 0.2s;
-}
-
-.toggle-switch.active .toggle-dot {
-  left: calc(100% - 1.25rem);
-}
-
 .location-tabs {
   display: flex;
   margin-bottom: 1rem;
@@ -355,7 +318,6 @@
   opacity: 0.8;
 }
 
-/* Nuevos estilos para Ubicación y Formularios */
 .checkbox-group {
   display: flex;
   gap: 1.5rem;
